@@ -27,8 +27,9 @@ export const registerNavigation = (server: McpServer, session: Session): void =>
 			},
 		},
 		async ({ url, tabId, waitUntil }) => {
+			session.assertAllowed(url)
 			const tab = await session.tab(tabId)
-			const res = await tab.page.goto(url, { waitUntil })
+			const res = await session.guard(tab, () => tab.page.goto(url, { waitUntil }), url)
 			return text(`${res ? `HTTP ${res.status()} - ` : ''}${await tab.describe()}`)
 		},
 	)
@@ -42,7 +43,7 @@ export const registerNavigation = (server: McpServer, session: Session): void =>
 		},
 		async ({ tabId, waitUntil }) => {
 			const tab = await session.tab(tabId)
-			await tab.page.reload({ waitUntil })
+			await session.guard(tab, () => tab.page.reload({ waitUntil }))
 			return text(await tab.describe())
 		},
 	)
@@ -56,7 +57,7 @@ export const registerNavigation = (server: McpServer, session: Session): void =>
 		},
 		async ({ tabId }) => {
 			const tab = await session.tab(tabId)
-			const res = await tab.page.goBack()
+			const res = await session.guard(tab, () => tab.page.goBack())
 			return text(res ? await tab.describe() : `no previous page in history - ${await tab.describe()}`)
 		},
 	)

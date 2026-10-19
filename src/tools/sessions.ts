@@ -14,7 +14,7 @@ export const registerSessions = (server: McpServer, session: Session): void => {
 		{
 			title: 'Session',
 			description:
-				'Persist and restore browser state (cookies, localStorage, indexeddb) as named sessions so logins survive server restarts. save dumps the current state; load starts a fresh context from a saved one (open tabs, logs and refs are discarded); list and delete manage the saved set. Env ODYSEA_SESSION=<name> auto-loads one at startup.',
+				'Persist and restore browser state (cookies, localStorage, indexeddb) as named sessions so logins survive server restarts. save dumps the current state; load starts a fresh context from a saved one (open tabs, logs and refs are discarded); list and delete manage the saved set. Env ODYSEA_SESSION=<name> auto-loads one at startup. With ODYSEA_STATE_FILE set, only save works and always writes that file.',
 			inputSchema: {
 				action: z.enum(['save', 'load', 'list', 'delete']),
 				name: z.string().optional().describe('session name; save defaults to the currently loaded session'),
