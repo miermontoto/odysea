@@ -2,7 +2,7 @@ import { isAbsolute, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import { parseArgs } from 'node:util'
 import { contextOptions, launchBrowser } from './browser.js'
-import { EXIT_CODE, LOGGED_OUT_STATUSES, LOGIN_AUTOSAVE_MS, VERSION } from './constants.js'
+import { EXIT_CODE, LOGGED_OUT_STATUSES, LOGIN_AUTOSAVE_MS, PACKAGE_NAME, PROTOCOL, TOOL_NAME, VERSION } from './constants.js'
 import { existingState, SaveQueue, saveState } from './state.js'
 
 // subcomandos de la cli: sin protocolo mcp, así que stdout es de la cli (versión y el json del probe) y
@@ -10,11 +10,13 @@ import { existingState, SaveQueue, saveState } from './state.js'
 const USAGE = `usage:
   odysea                                   mcp server on stdio
   odysea --version
+  odysea --identify                        one json line: package, tool, protocol, version
   odysea login --state-file <path> --url <url>
   odysea probe --state-file <path> --url <url> [--login-pattern <regex>]`
 
 const OPTIONS = {
 	version: { type: 'boolean' },
+	identify: { type: 'boolean' },
 	'state-file': { type: 'string' },
 	url: { type: 'string' },
 	'login-pattern': { type: 'string' },
@@ -122,6 +124,11 @@ export const runCli = async (args: string[]): Promise<number> => {
 		const { values, positionals } = parseArgs({ args, options: OPTIONS, allowPositionals: true })
 		if (values.version) {
 			console.log(VERSION)
+			return EXIT_CODE.ok
+		}
+		// una sola línea json: el runner la exige antes de darle a este binario una copia de una sesión
+		if (values.identify) {
+			console.log(JSON.stringify({ name: PACKAGE_NAME, tool: TOOL_NAME, protocol: PROTOCOL, version: VERSION }))
 			return EXIT_CODE.ok
 		}
 		const command = positionals.length === 1 ? COMMANDS[positionals[0]] : undefined
