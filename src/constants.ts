@@ -1,5 +1,12 @@
 // límites y valores por defecto de toda la sesión, el resto del código no usa números mágicos
-export const VERSION = '0.5.0'
+export const VERSION = '0.5.1'
+// identidad para quien lanza odysea como binario (`odysea --identify`): el nombre del paquete en npm (en npm,
+// `odysea` a secas es otro proyecto) y la versión del contrato de cara a un runner. PROTOCOL sube solo cuando
+// cambia ese contrato: las env vars (ODYSEA_STATE_FILE, ODYSEA_ALLOWED_ORIGINS, ODYSEA_SESSION_TOOL,
+// ODYSEA_AUTOSAVE_MS) y la cli `login` / `probe` con su salida
+export const PACKAGE_NAME = '@miermontoto/odysea'
+export const TOOL_NAME = 'odysea'
+export const PROTOCOL = 1
 
 export const DEFAULT_VIEWPORT = { width: 1280, height: 720 } as const
 export const MIN_VIEWPORT_PX = 200
