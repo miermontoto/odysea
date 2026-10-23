@@ -1,5 +1,5 @@
 import { isAbsolute } from 'node:path'
-import { AUTOSAVE_MAX_MS, AUTOSAVE_MIN_MS } from './constants.js'
+import { AUTOSAVE_MAX_MS, AUTOSAVE_MIN_MS, CONTACT_RE } from './constants.js'
 import { parseOriginPatterns, type OriginPattern } from './origins.js'
 
 // configuración del servidor mcp por entorno, validada al arrancar: un valor inválido lanza y el proceso
@@ -13,6 +13,14 @@ export interface ServerConfig {
 	autosaveMs?: number
 	// allowlist de orígenes navegables; ausente = sin restricción
 	allowedOrigins?: readonly OriginPattern[]
+	// contacto que declaran las peticiones fuera de una tab (feeds), p.ej. un email
+	contact?: string
+}
+
+const contactOf = (raw: string | undefined): string | undefined => {
+	if (!raw) return undefined
+	if (!CONTACT_RE.test(raw)) throw new Error('ODYSEA_CONTACT must be printable ascii, up to 200 characters')
+	return raw
 }
 
 const autosaveInterval = (raw: string | undefined): number | undefined => {
@@ -30,5 +38,6 @@ export const loadConfig = (env: NodeJS.ProcessEnv): ServerConfig => {
 		sessionTool: env.ODYSEA_SESSION_TOOL !== '0',
 		autosaveMs: autosaveInterval(env.ODYSEA_AUTOSAVE_MS),
 		allowedOrigins: parseOriginPatterns(env.ODYSEA_ALLOWED_ORIGINS),
+		contact: contactOf(env.ODYSEA_CONTACT),
 	}
 }

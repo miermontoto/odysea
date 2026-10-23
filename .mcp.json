@@ -1,8 +1,0 @@
-{
-	"mcpServers": {
-		"odysea": {
-			"command": "node",
-			"args": ["dist/index.js"]
-		}
-	}
-}
