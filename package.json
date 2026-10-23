@@ -1,7 +1,7 @@
 {
 	"name": "@miermontoto/odysea",
-	"version": "0.5.1",
-	"description": "headless mcp-native browser navigator: lets agents drive, inspect and debug web frontends",
+	"version": "0.6.0",
+	"description": "headless mcp-native browser navigator: lets agents read the web, and drive, inspect and debug web frontends",
 	"license": "PolyForm-Noncommercial-1.0.0",
 	"author": "miermontoto",
 	"type": "module",

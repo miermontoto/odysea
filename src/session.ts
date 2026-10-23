@@ -1,14 +1,29 @@
 import { readdir, rm, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
-import type { Browser, BrowserContext, ConsoleMessage, Frame, Locator, Page, Request, Response, Route } from 'playwright'
+import type {
+	APIResponse,
+	Browser,
+	BrowserContext,
+	ConsoleMessage,
+	Frame,
+	Locator,
+	Page,
+	Request,
+	Response,
+	Route,
+} from 'playwright'
 import { contextOptions, launchBrowser } from './browser.js'
 import {
 	BLANK_URL,
 	BLOCKED_ABORT_CODE,
 	DEFAULT_ACTION_TIMEOUT_MS,
 	DEFAULT_NAV_TIMEOUT_MS,
+	FEED_ACCEPT,
+	FETCH_AGENT,
+	MAX_FETCH_REDIRECTS,
 	MAX_LOG_ENTRIES,
+	REDIRECT_STATUSES,
 	SESSION_NAME_RE,
 } from './constants.js'
 import { describeOrigins, isAllowedFrameUrl, isAllowedUrl, type OriginPattern } from './origins.js'
@@ -161,13 +176,18 @@ export interface SessionOptions {
 	stateFile?: string
 	// allowlist de orígenes (ODYSEA_ALLOWED_ORIGINS); ausente = sin restricción
 	allowedOrigins?: readonly OriginPattern[]
+	// contacto que declaran las peticiones fuera de una tab (ODYSEA_CONTACT)
+	contact?: string
 }
 
 // sesión única del servidor: browser perezoso (no se paga el arranque hasta la primera acción),
 // registro de tabs direccionables por id y noción de tab activa
 export class Session {
 	#browser?: Browser
+	// el contexto solo se publica ya montado (con su allowlist enrutada); mientras se crea, quien llegue espera
+	// la misma promesa: llamadas concurrentes (read_many) nunca lanzan dos browsers ni ven un contexto sin gate
 	#context?: BrowserContext
+	#contextReady?: Promise<BrowserContext>
 	#tabs = new Map<number, Tab>()
 	#byPage = new WeakMap<Page, Tab>()
 	#nextTab = 1
@@ -183,21 +203,30 @@ export class Session {
 		this.#sessionName = options.stateFile ? undefined : process.env.ODYSEA_SESSION
 	}
 
-	async #ensureContext(): Promise<BrowserContext> {
-		if (this.#context) return this.#context
+	// un fallo no queda memorizado: la siguiente llamada lo reintenta
+	#ensureContext(): Promise<BrowserContext> {
+		this.#contextReady ??= this.#createContext().catch((err: Error) => {
+			this.#contextReady = undefined
+			throw err
+		})
+		return this.#contextReady
+	}
+
+	async #createContext(): Promise<BrowserContext> {
 		this.#browser ??= await launchBrowser()
 		const allowed = this.options.allowedOrigins
-		this.#context = await this.#browser.newContext({
+		const context = await this.#browser.newContext({
 			...contextOptions(await this.#usableState()),
 			// con allowlist, un service worker podría servir navegaciones sin pasar por route: se bloquean
 			...(allowed && { serviceWorkers: 'block' as const }),
 		})
-		this.#context.setDefaultTimeout(DEFAULT_ACTION_TIMEOUT_MS)
-		this.#context.setDefaultNavigationTimeout(DEFAULT_NAV_TIMEOUT_MS)
+		context.setDefaultTimeout(DEFAULT_ACTION_TIMEOUT_MS)
+		context.setDefaultNavigationTimeout(DEFAULT_NAV_TIMEOUT_MS)
 		// registrar aquí cada page nueva cubre también popups y window.open
-		this.#context.on('page', (page) => this.#register(page))
-		if (allowed) await this.#context.route('**/*', (route, request) => this.#gate(route, request, allowed))
-		return this.#context
+		context.on('page', (page) => this.#register(page))
+		if (allowed) await context.route('**/*', (route, request) => this.#gate(route, request, allowed))
+		this.#context = context
+		return context
 	}
 
 	// allowlist de orígenes, solo en el main frame (tabs y popups): subrecursos e iframes pasan, así que acota
@@ -248,6 +277,25 @@ export class Session {
 			throw new Error(`origin not allowed: ${url} (allowed: ${describeOrigins(allowed)})`)
 	}
 
+	// petición http fuera de una tab (feeds), con las cookies del contexto. playwright no la pasa por el gate, así
+	// que cada salto de una redirección se comprueba aquí contra la allowlist. se identifica como odysea (con el
+	// contacto de ODYSEA_CONTACT si lo hay), nunca como un navegador
+	async fetch(url: string, hops = 0): Promise<APIResponse> {
+		this.assertAllowed(url)
+		const context = await this.#ensureContext()
+		const { contact } = this.options
+		const res = await context.request.get(url, {
+			maxRedirects: 0,
+			timeout: DEFAULT_NAV_TIMEOUT_MS,
+			headers: { 'user-agent': contact ? `${FETCH_AGENT} (+${contact})` : FETCH_AGENT, accept: FEED_ACCEPT },
+		})
+		const location = res.headers().location
+		if (!REDIRECT_STATUSES.includes(res.status()) || !location) return res
+		await res.dispose()
+		if (hops >= MAX_FETCH_REDIRECTS) throw new Error(`more than ${MAX_FETCH_REDIRECTS} redirects fetching ${url}`)
+		return this.fetch(new URL(location, url).href, hops + 1)
+	}
+
 	// ejecuta una navegación de una tool: comprueba la url pedida y traduce un aborto de la allowlist
 	// (p.ej. una redirección a otro origen) a un error claro en vez del net::ERR genérico del motor
 	async guard<T>(tab: Tab, navigate: () => Promise<T>, url?: string): Promise<T> {
@@ -292,11 +340,12 @@ export class Session {
 		return this.#active ?? this.newTab()
 	}
 
-	async newTab(url?: string): Promise<Tab> {
+	// activate=false para tabs de usar y tirar (read_many, read_feed): no le quitan la activa al agente
+	async newTab(url?: string, activate = true): Promise<Tab> {
 		if (url) this.assertAllowed(url)
 		const context = await this.#ensureContext()
 		const tab = this.#register(await context.newPage())
-		this.#active = tab
+		if (activate) this.#active = tab
 		if (url) await this.guard(tab, () => tab.page.goto(url))
 		return tab
 	}
@@ -386,9 +435,12 @@ export class Session {
 			throw new Error(`no saved session "${name}", use session {action: "list"}`)
 		})
 		this.#sessionName = name
-		if (this.#context) {
-			await this.#context.close()
+		// también el que aún se está creando: si no, nacería con el estado anterior
+		const context = await this.#contextReady?.catch(() => undefined)
+		if (context) {
+			await context.close()
 			this.#context = undefined
+			this.#contextReady = undefined
 			this.#tabs.clear()
 			this.#active = undefined
 		}

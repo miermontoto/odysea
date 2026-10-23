@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// odysea: navegador headless nativo de mcp para que los agentes usen y depuren frontends
+// odysea: navegador headless nativo de mcp para que los agentes lean la web y usen y depuren frontends
 // ojo: stdout pertenece al protocolo stdio de mcp, cualquier log debe ir a stderr
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -9,8 +9,11 @@ import { EXIT_CODE, SHUTDOWN_SAVE_TIMEOUT_MS, VERSION } from './constants.js'
 import { Session } from './session.js'
 import { registerCapture } from './tools/capture.js'
 import { registerDebug } from './tools/debug.js'
+import { registerExtract } from './tools/extract.js'
+import { registerFeed } from './tools/feed.js'
 import { registerInteract } from './tools/interact.js'
 import { registerNavigation } from './tools/navigation.js'
+import { registerRead } from './tools/read.js'
 import { registerSessions } from './tools/sessions.js'
 
 // el timer no mantiene vivo el proceso: un guardado colgado nunca bloquea el apagado
@@ -30,10 +33,10 @@ const serve = async (): Promise<void> => {
 		}
 	})()
 
-	const session = new Session({ stateFile: config.stateFile, allowedOrigins: config.allowedOrigins })
+	const session = new Session({ stateFile: config.stateFile, allowedOrigins: config.allowedOrigins, contact: config.contact })
 	const server = new McpServer({ name: 'odysea', version: VERSION })
 
-	const registrars = [registerNavigation, registerCapture, registerDebug, registerInteract]
+	const registrars = [registerNavigation, registerRead, registerFeed, registerExtract, registerCapture, registerDebug, registerInteract]
 	for (const register of config.sessionTool ? [...registrars, registerSessions] : registrars) register(server, session)
 
 	// cerrar el browser al morir el proceso para no dejar chromiums huérfanos; con autosave, antes se
